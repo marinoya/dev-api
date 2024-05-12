@@ -6,15 +6,26 @@ import (
 	"fmt"
 	"io"
 	"net/http"
+	"time"
 
+	"github.com/google/uuid"
 	"github.com/gorilla/mux"
 )
 
-const MerchantID string = "BUGBOUNTY231"
-const APISecretKey string = "5f4a6fcf-9048-4a0b-afc2-ed92d60fb1bf"
-const Currency string = "USD"
-const EndpointId string = "402334"
-const BaseURL string = "https://api.zotapay-stage.com"
+const MerchantID = "BUGBOUNTY231"
+const APISecretKey = "5f4a6fcf-9048-4a0b-afc2-ed92d60fb1bf"
+const Currency = "USD"
+const EndpointId = "402334"
+const BaseURL = "https://api.zotapay-stage.com"
+const ZotaOrderAcceptedCode = "200"
+var ZotaOrderFinalStates = []string{"APPROVED", "DECLINED", "FILTERED", "ERROR"}
+const pollingTime = 10*time.Second
+
+const ServerURL = "http://localhost"
+const ServerPort = ":8088"
+const CallbackPath = "/callback"
+const PaymentPath = "/payment_return"
+const DepositPath = "/deposit"
 
 var DepositRequests = map[string]string{}
 var OrderStatuses = map[string]string{}
@@ -23,15 +34,15 @@ func main() {
 
 	router := mux.NewRouter()
 
-	router.HandleFunc("/deposit", DepositHandler).Methods("POST")
+	router.HandleFunc(DepositPath, DepositHandler).Methods("POST")
 
-	router.HandleFunc("/callback", CallbackHandler).Methods("POST")
+	router.HandleFunc(CallbackPath, CallbackHandler).Methods("POST")
 
-	router.HandleFunc("/payment_return", RedirectHandler).Methods("GET")
+	router.HandleFunc(PaymentPath, RedirectHandler).Methods("GET")
 
-	fmt.Println("Starting server on http://localhost:8088")
+	fmt.Println("Starting server on " + ServerURL + ServerPort)
 
-	if err := http.ListenAndServe(":8088", router); err != nil {
+	if err := http.ListenAndServe(ServerPort, router); err != nil {
 		fmt.Println(err)
 	}
 
@@ -39,26 +50,45 @@ func main() {
 
 func DepositHandler(w http.ResponseWriter, r *http.Request) {
 
-	depositData := DepositRequest{
-		MerchantOrderID:     "18",
-		MerchantOrderDesc:   "Test order",
-		OrderAmount:         "500.00",
-		OrderCurrency:       Currency,
-		CustomerEmail:       "customer@email-address.com",
-		CustomerFirstName:   "John",
-		CustomerLastName:    "Doe",
-		CustomerAddress:     "5/5 Moo 5 Thong Nai Pan Noi Beach, Baan Tai, Koh Phangan",
-		CustomerCountryCode: "TH",
-		CustomerCity:        "Surat Thani",
-		CustomerZipCode:     "84280",
-		CustomerPhone:       "+66-77999110",
-		CustomerIP:          "103.106.8.104",
-		RedirectUrl:         "https://www.example-merchant.com/payment-return/",
-		CallbackUrl:         "https://www.example-merchant.com/payment-callback/",
-		CustomParam:         "{\"UserId\": \"e139b447\"}",
-		CheckoutUrl:         "https://www.example-merchant.com/account/deposit/?uid=e139b447",
-		Signature:           GenerateSignature(EndpointId + "18" + "500" + "customer@email-address.com" + APISecretKey),
+	var requestParams DepositModel
+
+	if body, err := io.ReadAll(r.Body); err != nil {
+		fmt.Println("Error reading body", err)
+		w.WriteHeader(http.StatusBadRequest)
+		return
+	} else {
+		if err = json.Unmarshal(body, &requestParams); err != nil {
+			fmt.Println("Error parsing JSON", err)
+			w.WriteHeader(http.StatusBadRequest)
+			return
+		}
 	}
+
+	if requestParams.OrderCurrency != Currency {
+		w.WriteHeader(http.StatusBadRequest)
+		return
+	}
+
+	depositData := DepositRequest{
+		MerchantOrderID:     uuid.New().String(),
+		MerchantOrderDesc:   requestParams.MerchantOrderDesc,
+		OrderAmount:         requestParams.OrderAmount,
+		OrderCurrency:       Currency,
+		CustomerEmail:       requestParams.CustomerEmail,
+		CustomerFirstName:   requestParams.CustomerFirstName,
+		CustomerLastName:    requestParams.CustomerLastName,
+		CustomerAddress:     requestParams.CustomerAddress,
+		CustomerCountryCode: requestParams.CustomerCountryCode,
+		CustomerCity:        requestParams.CustomerCity,
+		CustomerZipCode:     requestParams.CustomerZipCode,
+		CustomerPhone:       requestParams.CustomerPhone,
+		CustomerIP:          r.RemoteAddr,
+		RedirectUrl:         ServerURL + ServerPort + PaymentPath,
+		CallbackUrl:         ServerURL + ServerPort + CallbackPath,
+		CheckoutUrl:         ServerURL + ServerPort + DepositPath,
+	}
+
+	depositData.Signature = GenerateSignature(EndpointId + depositData.MerchantOrderID + depositData.OrderAmount + depositData.CustomerEmail + APISecretKey)
 
 	jsonData, err := json.Marshal(depositData)
 	if err != nil {
@@ -82,12 +112,35 @@ func DepositHandler(w http.ResponseWriter, r *http.Request) {
 	}
 	defer response.Body.Close()
 
-	fmt.Fprintf(w, "Deposit flow initiated")
-}
+	var depositResponse DepositResponse
 
-func StatusCheckHandler(w http.ResponseWriter, r *http.Request) {
+	if body, err := io.ReadAll(response.Body); err != nil {
+		fmt.Println("Error reading response body", err)
+		w.WriteHeader(http.StatusInternalServerError)
+		return
+	} else {
+		if err = json.Unmarshal(body, &depositResponse); err != nil {
+			fmt.Println("Error parsing response JSON", err)
+			w.WriteHeader(http.StatusInternalServerError)
+			return
+		}
+	}
 
-	fmt.Fprintf(w, "Status check flow initiated")
+	if depositResponse.Code != ZotaOrderAcceptedCode {
+		fmt.Println("Zota Error", depositResponse.Code, depositResponse.Message)
+		w.WriteHeader(http.StatusInternalServerError)
+		return
+	}
+
+	DepositRequests[depositData.MerchantOrderID] = depositResponse.Data.OrderID
+
+	//TODO: go routine check status and update OrderStatuses map every 10 seconds
+
+
+	w.Write([]byte(depositResponse.Data.DepositUrl))
+	w.WriteHeader(http.StatusFound)
+
+
 }
 
 func CallbackHandler(w http.ResponseWriter, r *http.Request) {

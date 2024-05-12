@@ -1,24 +1,49 @@
 package main
 
+type DepositModel struct {
+	MerchantOrderDesc   string
+	OrderAmount         string
+	OrderCurrency       string
+	CustomerEmail       string
+	CustomerFirstName   string
+	CustomerLastName    string
+	CustomerAddress     string
+	CustomerCountryCode string
+	CustomerCity        string
+	CustomerZipCode     string
+	CustomerPhone       string
+}
+
 type DepositRequest struct {
-	MerchantOrderID     string `json:"merchantOrderID"`
-	MerchantOrderDesc   string `json:"merchantOrderDesc"`
-	OrderAmount         string `json:"orderAmount"`
-	OrderCurrency       string `json:"orderCurrency"`
-	CustomerEmail       string `json:"customerEmail"`
-	CustomerFirstName   string `json:"customerFirstName"`
-	CustomerLastName    string `json:"customerLastName"`
-	CustomerAddress     string `json:"customerAddress"`
-	CustomerCountryCode string `json:"customerCountryCode"`
-	CustomerCity        string `json:"customerCity"`
-	CustomerZipCode     string `json:"customerZipCode"`
-	CustomerPhone       string `json:"customerPhone"`
-	CustomerIP          string `json:"customerIP"`
-	RedirectUrl         string `json:"redirectUrl"`
-	CallbackUrl         string `json:"callbackUrl"`
-	CustomParam         string `json:"customParam"`
-	CheckoutUrl         string `json:"checkoutUrl"`
-	Signature           string `json:"signature"`
+	MerchantOrderID     string
+	MerchantOrderDesc   string
+	OrderAmount         string
+	OrderCurrency       string
+	CustomerEmail       string
+	CustomerFirstName   string
+	CustomerLastName    string
+	CustomerAddress     string
+	CustomerCountryCode string
+	CustomerCity        string
+	CustomerZipCode     string
+	CustomerPhone       string
+	CustomerIP          string
+	RedirectUrl         string
+	CallbackUrl         string
+	CheckoutUrl         string
+	Signature           string
+}
+
+type DepositResponse struct {
+	Code    string
+	Message *string
+	Data    *DataResponse
+}
+
+type DataResponse struct {
+	DepositUrl      string
+	MerchantOrderID string
+	OrderID         string
 }
 
 type CallbackModel struct {
