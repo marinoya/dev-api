@@ -6,6 +6,7 @@ import (
 	"fmt"
 	"io"
 	"net/http"
+	"slices"
 	"time"
 
 	"github.com/google/uuid"
@@ -18,8 +19,12 @@ const Currency = "USD"
 const EndpointId = "402334"
 const BaseURL = "https://api.zotapay-stage.com"
 const ZotaOrderAcceptedCode = "200"
+
 var ZotaOrderFinalStates = []string{"APPROVED", "DECLINED", "FILTERED", "ERROR"}
-const pollingTime = 10*time.Second
+
+const pollingTime = 10 * time.Second
+const depositPath = "/api/v1/deposit/request/" + EndpointId + "/"
+const orderStatusPath = "/api/v1/query/order-status/"
 
 const ServerURL = "http://localhost"
 const ServerPort = ":8088"
@@ -96,7 +101,7 @@ func DepositHandler(w http.ResponseWriter, r *http.Request) {
 		return
 	}
 
-	request, err := http.NewRequest("POST", BaseURL, bytes.NewBuffer(jsonData))
+	request, err := http.NewRequest("POST", BaseURL+depositPath, bytes.NewBuffer(jsonData))
 	if err != nil {
 		http.Error(w, err.Error(), http.StatusInternalServerError)
 		return
@@ -120,7 +125,7 @@ func DepositHandler(w http.ResponseWriter, r *http.Request) {
 		return
 	} else {
 		if err = json.Unmarshal(body, &depositResponse); err != nil {
-			fmt.Println("Error parsing response JSON", err)
+			fmt.Println("Error parsing response JSON", body, err)
 			w.WriteHeader(http.StatusInternalServerError)
 			return
 		}
@@ -134,13 +139,42 @@ func DepositHandler(w http.ResponseWriter, r *http.Request) {
 
 	DepositRequests[depositData.MerchantOrderID] = depositResponse.Data.OrderID
 
-	//TODO: go routine check status and update OrderStatuses map every 10 seconds
+	go func() {
 
+		for {
+
+			time.Sleep(pollingTime)
+
+			currentStatus := OrderStatuses[depositResponse.Data.OrderID]
+
+			if slices.Contains(ZotaOrderFinalStates, currentStatus) {
+				return
+			}
+
+			checkStatus(depositData.MerchantOrderID, depositResponse.Data.OrderID)
+		}
+	}()
 
 	w.Write([]byte(depositResponse.Data.DepositUrl))
 	w.WriteHeader(http.StatusFound)
 
+}
 
+func checkStatus(moid, oid string) {
+	t := fmt.Sprint(time.Now().Unix())
+	s := GenerateSignature(MerchantID + moid + oid + t + APISecretKey)
+
+	requestURL := fmt.Sprintf("%s%s?merchantID=%s&merchantOrderID=%s&orderID=%s&timestamp=%s&signature=%s", BaseURL, orderStatusPath, MerchantID, moid, oid, t, s)
+
+	response, _ := http.Get(requestURL)
+
+	var statusResponse CheckStatusResponse
+
+	if body, err := io.ReadAll(response.Body); err == nil {
+		if err = json.Unmarshal(body, &statusResponse); err == nil && statusResponse.Code == ZotaOrderAcceptedCode {
+			OrderStatuses[oid] = statusResponse.Data.Status
+		}
+	}
 }
 
 func CallbackHandler(w http.ResponseWriter, r *http.Request) {
@@ -193,12 +227,16 @@ func RedirectHandler(w http.ResponseWriter, r *http.Request) {
 		return
 	}
 
+	if slices.Contains(ZotaOrderFinalStates, status) {
+		OrderStatuses[oid] = status
+	}
+
 	orderStatus := OrderStatuses[oid]
 	var result string
 
 	switch orderStatus {
 	case "APPROVED":
-		result = "Success, thank you for your painment!"
+		result = "Success, thank you for your paiment!"
 	case "DECLINED", "FILTERED", "ERROR":
 		result = "Failed, please try again!"
 	default:
@@ -207,6 +245,4 @@ func RedirectHandler(w http.ResponseWriter, r *http.Request) {
 
 	w.Write([]byte(result))
 	w.WriteHeader(http.StatusOK)
-
-	fmt.Fprintf(w, "Status check flow initiated")
 }

@@ -55,3 +55,13 @@ type CallbackModel struct {
 	CustomerEmail   string
 	Signature       string
 }
+
+type CheckStatusResponse struct {
+	Code    string
+	Message *string
+	Data    *StatusResponse
+}
+
+type StatusResponse struct {
+	Status string
+}
