@@ -4,6 +4,7 @@ import (
 	"bytes"
 	"encoding/json"
 	"fmt"
+	"io"
 	"net/http"
 
 	"github.com/gorilla/mux"
@@ -113,7 +114,30 @@ func StatusCheckHandler(w http.ResponseWriter, r *http.Request) {
 
 func CallbackHandler(w http.ResponseWriter, r *http.Request) {
 
-	//update the order status map with a "finalization" status
+	var requestParams CallbackModel
+
+	if body, err := io.ReadAll(r.Body); err != nil {
+		fmt.Println("Error reading body", err)
+		w.WriteHeader(http.StatusBadRequest)
+		return
+	} else {
+		if err = json.Unmarshal(body, &requestParams); err != nil {
+			fmt.Println("Error parsing JSON", err)
+			w.WriteHeader(http.StatusBadRequest)
+			return
+		}
+	}
+
+	params := requestParams.EndpointID + requestParams.OrderID + requestParams.Status + requestParams.Amount + requestParams.CustomerEmail + APISecretKey
+	if !ValidateSignature(params, requestParams.Signature) {
+		w.WriteHeader(http.StatusUnauthorized)
+
+		return
+	}
+
+	OrderStatuses[requestParams.OrderID] = requestParams.Status
+
+	w.WriteHeader(http.StatusOK)
 }
 
 func RedirectHandler(w http.ResponseWriter, r *http.Request) {
@@ -123,7 +147,7 @@ func RedirectHandler(w http.ResponseWriter, r *http.Request) {
 	orderID := q.Get("orderID")
 	merchantOrderID := q.Get("merchantOrderID")
 	signature := q.Get("signature")
- 
+
 	if !ValidateSignature(status+orderID+merchantOrderID+APISecretKey, signature) {
 		fmt.Printf("Invalid signature for parameters: `%s`, `%s`, `%s`, provided signature was `%s`", status, orderID, merchantOrderID, signature)
 		w.WriteHeader(http.StatusUnauthorized)
