@@ -25,8 +25,6 @@ func main() {
 
 	router.HandleFunc("/deposit", DepositHandler).Methods("POST")
 
-	router.HandleFunc("/status", StatusCheckHandler).Methods("GET")
-
 	router.HandleFunc("/callback", CallbackHandler).Methods("POST")
 
 	router.HandleFunc("/payment_return", RedirectHandler).Methods("GET")
@@ -37,26 +35,6 @@ func main() {
 		fmt.Println(err)
 	}
 
-}
-
-type ApiResponse struct {
-	Status string `json:"status"`
-}
-
-// statusCheckFlow sends a GET request and returns the status from the response.
-func statusCheckFlow() (string, error) {
-	resp, err := http.Get("https://api.zotapay.com/api/v1/query/order-status/?${qs}")
-	if err != nil {
-		return "", err // Return an empty string and the error
-	}
-	defer resp.Body.Close()
-
-	var apiResponse ApiResponse
-	if err := json.NewDecoder(resp.Body).Decode(&apiResponse); err != nil {
-		return "", err // Return an empty string and the error
-	}
-
-	return apiResponse.Status, nil
 }
 
 func DepositHandler(w http.ResponseWriter, r *http.Request) {
