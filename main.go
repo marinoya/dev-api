@@ -236,7 +236,7 @@ func RedirectHandler(w http.ResponseWriter, r *http.Request) {
 
 	switch orderStatus {
 	case "APPROVED":
-		result = "Success, thank you for your paiment!"
+		result = "Success, thank you for your payment!"
 	case "DECLINED", "FILTERED", "ERROR":
 		result = "Failed, please try again!"
 	default:
